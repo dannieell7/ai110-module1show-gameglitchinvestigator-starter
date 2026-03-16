@@ -34,17 +34,24 @@ def check_guess(guess, secret):
         return "Win", "🎉 Correct!"
 
     try:
+        # FIX ME: Logic breaks here
+        # FIX (Bug 1 & Bug 3): Claude Code identified that the hint messages were swapped —
+        # "Go HIGHER!" was shown when the guess was too high, and vice versa.
+        # Claude also caught that the original code cast secret to a str on even attempts,
+        # causing Python 3 to raise a TypeError and fall into a broken lexicographic
+        # comparison path. I verified both fixes by running the game manually and
+        # confirming the hint arrows matched the correct direction every time.
         if guess > secret:
-            return "Too High", "📈 Go HIGHER!"
+            return "Too High", "📉 Go LOWER!"
         else:
-            return "Too Low", "📉 Go LOWER!"
+            return "Too Low", "📈 Go HIGHER!"
     except TypeError:
         g = str(guess)
         if g == secret:
             return "Win", "🎉 Correct!"
         if g > secret:
-            return "Too High", "📈 Go HIGHER!"
-        return "Too Low", "📉 Go LOWER!"
+            return "Too High", "📉 Go LOWER!"
+        return "Too Low", "📈 Go HIGHER!"
 
 
 def update_score(current_score: int, outcome: str, attempt_number: int):
@@ -92,8 +99,14 @@ st.sidebar.caption(f"Attempts allowed: {attempt_limit}")
 if "secret" not in st.session_state:
     st.session_state.secret = random.randint(low, high)
 
+# FIXME: Logic breaks here
+# FIX (Bug 2): Claude Code spotted that attempts was initialized to 1 instead of 0.
+# Starting at 1 meant the counter displayed one attempt already used before the player
+# even guessed. Combined with the increment happening after st.info rendered, the counter
+# appeared frozen for the first two guesses. I verified the fix by watching the
+# "Attempts left" number drop by 1 immediately on the very first guess.
 if "attempts" not in st.session_state:
-    st.session_state.attempts = 1
+    st.session_state.attempts = 0
 
 if "score" not in st.session_state:
     st.session_state.score = 0
@@ -105,11 +118,6 @@ if "history" not in st.session_state:
     st.session_state.history = []
 
 st.subheader("Make a guess")
-
-st.info(
-    f"Guess a number between 1 and 100. "
-    f"Attempts left: {attempt_limit - st.session_state.attempts}"
-)
 
 with st.expander("Developer Debug Info"):
     st.write("Secret:", st.session_state.secret)
@@ -131,9 +139,25 @@ with col2:
 with col3:
     show_hint = st.checkbox("Show hint", value=True)
 
+# FIX (Bug 2 continued): Claude Code explained that in Streamlit, st.info had already
+# rendered the stale attempts value before the increment ran at the bottom of the page.
+# Moving the increment to before st.info ensures the counter updates on the same rerun
+# as the guess submission. I confirmed this by submitting a guess and seeing the counter
+# drop immediately without needing a second click.
+if submit:
+    st.session_state.attempts += 1
+
+st.info(
+    f"Guess a number between {low} and {high}. "
+    f"Attempts left: {attempt_limit - st.session_state.attempts}"
+)
+
 if new_game:
     st.session_state.attempts = 0
-    st.session_state.secret = random.randint(1, 100)
+    st.session_state.secret = random.randint(low, high)
+    st.session_state.status = "playing"
+    st.session_state.history = []
+    st.session_state.score = 0
     st.success("New game started.")
     st.rerun()
 
@@ -145,8 +169,6 @@ if st.session_state.status != "playing":
     st.stop()
 
 if submit:
-    st.session_state.attempts += 1
-
     ok, guess_int, err = parse_guess(raw_guess)
 
     if not ok:
@@ -155,10 +177,7 @@ if submit:
     else:
         st.session_state.history.append(guess_int)
 
-        if st.session_state.attempts % 2 == 0:
-            secret = str(st.session_state.secret)
-        else:
-            secret = st.session_state.secret
+        secret = st.session_state.secret
 
         outcome, message = check_guess(guess_int, secret)
 
